@@ -54,21 +54,18 @@ impl Ray{
     }
 }
 
-#[derive(Deserialize, Serialize, Debug)]
 pub struct DirectionalLight{
     pub direction: Vector3,
     pub color: Color,
     pub intensity: f32,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
 pub struct PointLight{
     pub pos: Point,
     pub color: Color,
     pub intensity: f32,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
 pub enum Light{
     Directional(DirectionalLight),
     Point(PointLight),
@@ -110,6 +107,52 @@ impl Light{
 
 }
 
+
+#[derive(Deserialize, Serialize)]
+pub struct img{
+
+}
+
+
+pub struct Texture_thing{
+    pub x: f32,
+    pub y: f32,
+}
+
+#[derive(Deserialize)]
+pub enum Texture {
+    color(Color),
+    image(img),
+}
+
+impl Texture {
+    pub fn get_color(&self, coords: &Texture_thing) -> Color {
+        match *self {
+            Texture::color(ref c) => c.clone(),
+            Texture::image(ref img) => {
+
+            Color{
+                red: 0.0,
+                green: 0.0,
+                blue: 0.0,
+            }
+
+            }
+        }
+    }
+}
+
+fn wrap(val: f32, bound: u32) -> u32 {
+    let s_bound = bound as i32;
+    let f_coord = val * bound as f32;
+    let wrap_coord = (f_coord as i32) % s_bound;
+    if wrap_coord < 0 {
+        (wrap_coord + s_bound) as u32
+    } else {
+        wrap_coord as u32
+    }
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Color{
     pub red: f32,
@@ -124,6 +167,13 @@ impl Color{
             (encode_gamma(self.blue) * 255.0) as u8,
             255,
         )
+    }
+
+    pub fn from_rgba(rgba: Rgba<u8>) -> () {
+        println!("{:#?}", rgba);
+        
+
+
     }
 
     pub fn clamp(&self) -> Color {
@@ -173,40 +223,37 @@ impl Add for Color {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+
+pub struct Material{
+    pub color: Texture,
+    pub albedo: f32,
+}
+
+
 pub struct Sphere{
     pub center: Point,
     pub radius: f64,
-    pub color: Color,
-    pub albedo: f32,
+    pub material: Material,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+
 pub struct Plane{
     pub center: Point,
     pub normal: Vector3,
-    pub color: Color,
-    pub albedo: f32,
+    pub material: Material,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+
 pub enum Element{
     Sphere(Sphere),
     Plane(Plane),
 }
 
 impl Element {
-    pub fn color(&self) -> &Color{
+    pub fn material(&self) -> &Material{
         match *self {
-            Element::Sphere(ref s) => &s.color,
-            Element::Plane(ref p) => &p.color,
-        }
-    }
-
-    pub fn albedo(&self) -> f32 {
-        match *self {
-            Element::Sphere(ref s) => s.albedo,
-            Element::Plane(ref p) => p.albedo,
+            Element::Sphere(ref s) => &s.material,
+            Element::Plane(ref p) => &p.material,
         }
     }
 }
@@ -235,6 +282,8 @@ pub trait Intersectable {
     fn intersect(&self, ray: &Ray) -> Option<f64>;
 
     fn surface_normal(&self, hit_point: &Point) -> Vector3;
+
+    fn texture_coords(&self, hit_point: &Point) -> Texture_thing;
 }
 
 impl Intersectable  for Element {
@@ -249,6 +298,13 @@ impl Intersectable  for Element {
         match *self {
             Element::Sphere(ref s) => s.surface_normal(&hit_point),
             Element::Plane(ref p) => p.surface_normal(&hit_point),
+        }
+    }
+
+    fn texture_coords(&self, hit_point: &Point) -> Texture_thing{
+        match *self {
+            Element::Sphere(ref s) => s.texture_coords(&hit_point),
+            Element::Plane(ref p) => p.texture_coords(&hit_point),
         }
     }
 }
@@ -271,6 +327,33 @@ impl Intersectable for Plane {
     fn surface_normal(&self, _: &Point) -> Vector3 {
         let zero: Vector3 = Vector3::zero();
         zero-self.normal
+    }
+
+    fn texture_coords(&self, hit_point: &Point) -> Texture_thing{
+
+        let mut x_axis = self.normal.cross(&Vector3{
+            x:0.0,
+            y:0.0,
+            z:1.0,
+        });
+
+        if x_axis.length() == 0.0{
+            x_axis = self.normal.cross(&Vector3 {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            });
+        }
+        
+        let y_axis = self.normal.cross(&x_axis);
+        
+        let direction_hit = *hit_point - self.center;
+
+        Texture_thing{
+            x: direction_hit.dot(&x_axis) as f32,
+            y: direction_hit.dot(&y_axis) as f32,
+        }
+        
     }
 }
 
@@ -306,6 +389,16 @@ impl Intersectable for Sphere {
     fn surface_normal(&self, hit_point: &Point) -> Vector3{
         (*hit_point - self.center).normalize()
     }
+
+    fn texture_coords(&self, hit_point: &Point) -> Texture_thing{
+        let direction_hit = *hit_point - self.center;
+
+        Texture_thing{
+            x: (1.0 + (direction_hit.z.atan2(direction_hit.x) as f32) / std::f32::consts::PI) * 0.5,
+            y: (direction_hit.y / self.radius).acos() as f32 / std::f32::consts::PI,
+        }
+
+    }
 }
 
 pub struct Scene{
@@ -330,6 +423,7 @@ impl Scene {
 fn get_color(scene: &Scene, ray: &Ray, intersection: &Intersection) -> Color{
     let hit_point = ray.origin + (ray.direction * intersection.distance);
     let surface_normal = intersection.element.surface_normal(&hit_point);
+    let texture_coords = intersection.element.texture_coords(&hit_point);
     let zero: Vector3 = Vector3::zero();
 
     
@@ -363,14 +457,15 @@ fn get_color(scene: &Scene, ray: &Ray, intersection: &Intersection) -> Color{
 
         let new_light_intensity = if is_not_shadow {light.intensity(&hit_point)} else{0.0};
 
+        let material = intersection.element.material();
 
         let light_power = (surface_normal.dot(&direction_light) as f32).max(0.0) * new_light_intensity;
 
-        let reflected_light = intersection.element.albedo() / std::f32::consts::PI;
+        let reflected_light = material.albedo / std::f32::consts::PI;
 
         let color = light.color().clone() * light_power * reflected_light;
 
-        combined_color = combined_color + (intersection.element.color().clone() * color);
+        combined_color = combined_color + (material.color.get_color(&texture_coords) * color);
 
     }
     
@@ -399,6 +494,7 @@ pub fn render_scene(scene: &Scene) -> DynamicImage {
 
 #[test]
 fn test_can_renderScene_scene(){
+
     let scene = Scene{
         width: 800,
         height: 600,
@@ -411,13 +507,15 @@ fn test_can_renderScene_scene(){
 
             },
             radius: 1.0,
-            color: Color{
-                red: 0.2,
-                green: 0.8,
-                blue: 0.2,
-
-            },
-            albedo: 1.0,
+            material: Material{
+                color: Color{
+                    red: 0.2,
+                    green: 0.8,
+                    blue: 0.2,
+    
+                },
+                albedo: 1.0,
+            }
 
         }), Element::Sphere(Sphere{   //Small Yellow ball
             center: Point {
@@ -427,12 +525,14 @@ fn test_can_renderScene_scene(){
 
             },
             radius: 0.5,
-            color: Color{
-                red: 0.8,
-                green: 0.8,
-                blue: 0.2,
-            },
-            albedo: 1.0,
+            material: Material{
+                color: Color{
+                    red: 0.8,
+                    green: 0.8,
+                    blue: 0.2,
+                },
+                albedo: 1.0,
+            }
 
         }),Element::Sphere(Sphere{  //Red ball
             center: Point {
@@ -442,13 +542,15 @@ fn test_can_renderScene_scene(){
 
             },
             radius: 2.0,
-            color: Color{
-                red: 0.8,
-                green: 0.2,
-                blue: 0.2,
-
-            },
-            albedo: 1.0,
+            material: Material{
+                color: Color{
+                    red: 0.8,
+                    green: 0.2,
+                    blue: 0.2,
+    
+                },
+                albedo: 1.0,
+            }
 
         }),Element::Plane(Plane{     //Plane
             center: Point {
@@ -462,13 +564,15 @@ fn test_can_renderScene_scene(){
                 y: 1.0,
                 z: 0.0,
             },
-            color: Color{
-                red: 0.2,
-                green: 0.2,
-                blue: 0.2,
-
-            },
-            albedo: 1.0,
+            material: Material{
+                color: Color{
+                    red: 0.2,
+                    green: 0.2,
+                    blue: 0.2,
+    
+                },
+                albedo: 1.0,
+            }
 
         })],
         lights: vec![Light::Directional(DirectionalLight{
@@ -497,7 +601,7 @@ fn test_can_renderScene_scene(){
             intensity: 0.1,
         }),Light::Point(PointLight{
             pos: Point{
-                x: -2.0,
+                x: 1.0,
                 y: 2.0,
                 z:-5.0,
             },
@@ -514,8 +618,7 @@ fn test_can_renderScene_scene(){
     let img: DynamicImage = render_scene(&scene);
 
 
-
-    println!("hej");
+    DynamicImage::save(&img, &Path::new("image.png"));
     
     assert_eq!(scene.width, img.width());
     assert_eq!(scene.height, img.height());
@@ -542,13 +645,15 @@ fn main() {
 
             },
             radius: 1.0,
-            color: Color{
-                red: 0.2,
-                green: 0.8,
-                blue: 0.2,
-
-            },
-            albedo: 1.0,
+            material: Material{
+                color: Texture::color(Color{
+                    red: 0.2,
+                    green: 0.8,
+                    blue: 0.2,
+    
+                }),
+                albedo: 1.0,
+            }
 
         }), Element::Sphere(Sphere{   //Small Yellow ball
             center: Point {
@@ -558,12 +663,14 @@ fn main() {
 
             },
             radius: 0.5,
-            color: Color{
-                red: 0.8,
-                green: 0.8,
-                blue: 0.2,
-            },
-            albedo: 1.0,
+            material: Material{
+                color: Texture::color(Color{
+                    red: 0.8,
+                    green: 0.8,
+                    blue: 0.2,
+                }),
+                albedo: 1.0,
+            }
 
         }),Element::Sphere(Sphere{  //Red ball
             center: Point {
@@ -573,13 +680,15 @@ fn main() {
 
             },
             radius: 2.0,
-            color: Color{
-                red: 0.8,
-                green: 0.2,
-                blue: 0.2,
-
-            },
-            albedo: 1.0,
+            material: Material{
+                color: Texture::color(Color{
+                    red: 0.8,
+                    green: 0.2,
+                    blue: 0.2,
+    
+                }),
+                albedo: 1.0,
+            }
 
         }),Element::Plane(Plane{     //Plane
             center: Point {
@@ -593,13 +702,15 @@ fn main() {
                 y: 1.0,
                 z: 0.0,
             },
-            color: Color{
-                red: 0.2,
-                green: 0.2,
-                blue: 0.2,
-
-            },
-            albedo: 1.0,
+            material: Material{
+                color: Texture::color(Color{
+                    red: 0.2,
+                    green: 0.2,
+                    blue: 0.2,
+    
+                }),
+                albedo: 1.0,
+            }
 
         })],
         lights: vec![Light::Directional(DirectionalLight{
