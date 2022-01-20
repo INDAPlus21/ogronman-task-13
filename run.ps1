@@ -1,3 +1,4 @@
+cargo build --release
 cd src/ 
 javac -h . main.java
 javac *.java 
