@@ -23,5 +23,5 @@ In the main-directory:
 no
 ```
 
-
-![](image.png)
+####Example picture
+![](example.png)
