@@ -43,6 +43,7 @@ public class main extends JFrame{
     private JTextField yPos;
     private JTextField zPos;
     private JButton addCircle;
+    private JButton addLight;
     private JButton colorButton;
 
     private Color currentColor;
@@ -90,8 +91,19 @@ public class main extends JFrame{
             @Override
             public void actionPerformed(ActionEvent e) {
                 try {
-                    p.addCircle(new Circle(Integer.parseInt(xPos.getText()), Integer.parseInt(yPos.getText()), Integer.parseInt(zPos.getText()), currentColor, radiusSlider.getValue()));
+                    p.addCircle(new Circle(Double.parseDouble(xPos.getText()), Double.parseDouble(yPos.getText()), Double.parseDouble(zPos.getText()), currentColor, radiusSlider.getValue()));
                     p.repaint();
+                } catch (java.lang.NumberFormatException er) {
+
+                }
+            }
+        });
+
+        addLight.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                try {
+                    p.addLight(new Light(Double.parseDouble(xPos.getText()), Double.parseDouble(yPos.getText()), Double.parseDouble(zPos.getText()), currentColor, radiusSlider.getValue()));
                 } catch (java.lang.NumberFormatException er) {
 
                 }
@@ -149,12 +161,15 @@ public class main extends JFrame{
         colorButton.setForeground(currentColor);
 
         radiusSlider = new JSlider();
-        radiusSlider.setMaximum(5);
+        radiusSlider.setMaximum(500);
         radiusSlider.setMinimum(0);
 
         xPos = new JTextField();
         yPos = new JTextField();
         zPos = new JTextField();
+        zPos.setText("-5");
+        xPos.setText("0");
+        yPos.setText("0");
 
         addCircle = new JButton("Add sphere to image");
 
@@ -168,16 +183,19 @@ public class main extends JFrame{
         settingsPanel.add(colorSliderG);
         settingsPanel.add(new JLabel("Blue-value:"));
         settingsPanel.add(colorSliderB);
-        settingsPanel.add(new JLabel("Radius:"));
+        settingsPanel.add(new JLabel("Radius/Intensity:"));
         settingsPanel.add(radiusSlider);
-        settingsPanel.add(new JLabel("x-posistion"));
+        settingsPanel.add(new JLabel("   x-value"));
         settingsPanel.add(xPos);
-        settingsPanel.add(new JLabel("y-posistion:"));
+        settingsPanel.add(new JLabel("   y-value:"));
         settingsPanel.add(yPos);
-        settingsPanel.add(new JLabel("z-posistion:"));
+        settingsPanel.add(new JLabel("   z-value:"));
         settingsPanel.add(zPos);
-        settingsPanel.add(new JLabel("Add sphere to image:"));
         settingsPanel.add(addCircle);
+
+        addLight = new JButton("Add information as light");
+
+        settingsPanel.add(addLight);
 
     }
 

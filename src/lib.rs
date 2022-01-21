@@ -3,7 +3,6 @@ extern crate jni;
 use std::path::Path;
 use std::path::PathBuf;
 use image::{DynamicImage, GenericImage, Pixel, Rgba};
-use serde::{Serialize, Deserialize};
 use std::ops::{Add, Sub, Mul, Neg};
 use image::GenericImageView;
 use image;
@@ -65,6 +64,41 @@ impl Ray{
             origin: col_point + (normal*bias),
             direction: collision - (2.0 * collision.dot(&normal) * normal),
         }
+    }
+
+    pub fn create_transmission(normal: Vector3, col_dir: Vector3, intersection: Point, bias: f64, index: f32) -> Option<Ray> {
+
+
+        let zero: Vector3 = Vector3::zero();
+        let mut ref_normal = normal;
+
+        let mut angle_t = index as f64;
+
+        let mut angle_i = 1.0f64;
+
+        let mut col_nor = col_dir.dot(&normal);
+
+        if col_nor < 0.0 {
+            col_nor = -col_nor;
+        }else{
+            ref_normal = zero-normal;
+            angle_t = 1.0;
+            angle_i = index as f64; 
+        }
+
+        let angle = angle_i / angle_t;
+
+        let k = 1.0 - (angle*angle) * (1.0 - col_nor * col_nor);
+
+        if k < 0.0 {
+            None
+        } else{
+            Some(Ray{
+                origin: intersection + (ref_normal * -bias),
+                direction: (col_dir + col_nor * ref_normal) * angle - ref_normal * k.sqrt(),
+            })
+        }
+
     }
 
 }
@@ -239,6 +273,7 @@ impl Add for Color {
 pub enum surface_type{
     Diffuse,
     Reflective { reflectivity: f32},    // 0 equals no reflectivity, 1 equals 100% reflectivity
+    Transparent {index: f32,  transparency: f32},
 }
 
 #[derive(Debug)]
@@ -403,10 +438,14 @@ impl Intersectable for Sphere {
 
         if thicc_ray < 0.0 && ray_thicc < 0.0 {
             return None;
+        } else if thicc_ray < 0.0 {
+            Some(ray_thicc)
+        } else if ray_thicc < 0.0 {
+            Some(thicc_ray)
+        } else {
+            let distance = if thicc_ray < ray_thicc { thicc_ray } else { ray_thicc };
+            Some(distance)
         }
-
-        let distance = if thicc_ray < ray_thicc {thicc_ray} else {ray_thicc};
-        Some(distance)
 
     }
 
@@ -505,17 +544,50 @@ fn get_color(scene: &Scene, ray: &Ray, intersection: &Intersection, depth: u32) 
     let zero: Vector3 = Vector3::zero();
 
     
-    let mut combined_color = diffuse_shading(scene, ray, intersection, hit_point, surface_normal);
+    //let mut combined_color = diffuse_shading(scene, ray, intersection, hit_point, surface_normal);
 
-    if let surface_type::Reflective {reflectivity} = intersection.element.material().surface{
-        let reflection = Ray::create_reflection(surface_normal, ray.direction, hit_point, scene.bias);
+    let material= intersection.element.material();
 
-        combined_color = combined_color * (1.0-reflectivity);
-        combined_color = combined_color + (raycast(scene, &reflection, depth + 1) * reflectivity);
+    match material.surface {
+        surface_type::Diffuse => diffuse_shading(scene, ray, intersection, hit_point, surface_normal),
+        surface_type::Reflective{reflectivity} => {
+
+            let mut ref_color = diffuse_shading(scene, ray, intersection, hit_point, surface_normal);
+
+            let reflection = Ray::create_reflection(surface_normal, ray.direction, hit_point, scene.bias);
+
+            ref_color = ref_color * (1.0-reflectivity);
+            ref_color = ref_color + (raycast(scene, &reflection, depth + 1) * reflectivity);
+            ref_color
+        },
+        surface_type::Transparent{index, transparency} => {
+            
+            let mut trans_color = Color{
+                red: 0.0,
+                green: 0.0,
+                blue: 0.0,
+            };
+
+            let surface_color = material.color.get_color(&intersection.element.texture_coords(&hit_point));
+
+            let transmission_ray = Ray::create_transmission(surface_normal, ray.direction, hit_point, scene.bias, index).unwrap_or(Ray{
+                origin: hit_point,
+                direction: ray.direction,
+            });
+
+            trans_color = raycast(scene, &transmission_ray, depth+1);
+
+            let reflection = Ray::create_reflection(surface_normal, ray.direction, hit_point, scene.bias);
+
+            let ref_color = (raycast(scene, &reflection, depth + 1));
+
+            let mut color = ref_color + trans_color;
+
+            color = color * transparency * surface_color;
+            
+            color
+        },
     }
-
-    combined_color
-
 }
 
 pub fn raycast(scene: &Scene, ray: &Ray, depth: u32) -> Color{
@@ -701,11 +773,15 @@ pub extern fn Java_main_javaCall(){
 
     let mut element_vec: Vec<Element> = Vec::new();
 
+    let mut light_vec: Vec<Light> = Vec::new();
+
     for line in reader.lines() {
 
         let words:Vec<String> = line.unwrap().split_whitespace().map(|s| s.to_string()).collect();
 
-        if(words[0].eq("sphere")){
+        println!("{:#?}", words);
+
+        if words[0].eq("sphere") {
             let new_element: Element = Element::Sphere(Sphere{
                 center: Point {
                     x: words[1].parse::<f64>().unwrap(),
@@ -724,71 +800,40 @@ pub extern fn Java_main_javaCall(){
                 },
             });
             element_vec.push(new_element);
+        }else if words[0].eq("light") {
+
+            let new_light: Light = Light::Directional(DirectionalLight{
+                direction: Vector3{
+                    x: words[1].parse::<f64>().unwrap(),
+                    y: words[2].parse::<f64>().unwrap(),
+                    z: words[3].parse::<f64>().unwrap(),
+                },
+                color:Color{
+                    red: words[5].parse::<f32>().unwrap() / 255.0,
+                    green: words[6].parse::<f32>().unwrap() / 255.0,
+                    blue: words[7].parse::<f32>().unwrap() / 255.0,
+                },
+                intensity: words[4].parse::<f32>().unwrap(),
+            });
+            light_vec.push(new_light);
+
         }
         
     }
 
     let scene2 = Scene{
-        width: 1250,
-        height: 1000,
+        width: 1920,
+        height: 1080,
         fov: 90.0,
         elements: element_vec,
-        lights: vec![Light::Directional(DirectionalLight{
-            direction: Vector3{
-                x: 0.5,
-                y: -0.25,
-                z: -0.5,
-            },
-            color: Color{
-                red: 0.8,
-                green: 0.8,
-                blue: 0.8,
-            },
-            intensity: 1.0,
-        }),Light::Directional(DirectionalLight{
-            direction: Vector3{
-                x: 0.0,
-                y: 1.0,
-                z: 0.1,
-            },
-            color: Color{
-                red: 0.1,
-                green: 0.8,
-                blue: 0.1,
-            },
-            intensity: 0.1,
-        }),Light::Point(PointLight{
-            pos: Point{
-                x: 1.0,
-                y: 2.0,
-                z:-5.0,
-            },
-            color: Color{
-                red: 0.9,
-                green: 0.2,
-                blue: 0.1,
-            },
-            intensity: 10.0,
-        }),Light::Point(PointLight{
-            pos: Point{
-                x: 0.0,
-                y: 0.0,
-                z:-1.0,
-            },
-            color: Color{
-                red: 0.1,
-                green: 0.8,
-                blue: 0.1,
-            },
-            intensity: 5.0,
-        })],
+        lights: light_vec,
         bias:0.1,
         max_rec: 10, 
     };
     
     let scene = Scene{
-        width: 1250,
-        height: 1000,
+        width: 1920,
+        height: 1080,
         fov: 90.0, 
         elements: vec![Element::Sphere(Sphere{  //Green ball
             center: Point {
@@ -823,8 +868,8 @@ pub extern fn Java_main_javaCall(){
                     green: 0.8,
                     blue: 0.2,
                 }),
-                albedo: 1.0,
-                surface: surface_type::Diffuse,
+                albedo: 0.28,
+                surface: surface_type::Transparent{index: 1.5, transparency: 0.6},
             }
 
         }), Element::Sphere(Sphere{   //Small amog us ball
@@ -837,8 +882,8 @@ pub extern fn Java_main_javaCall(){
             radius: 0.75,
             material: Material{
                 color: Texture::image(image::open("texture/test.png").unwrap()),
-                albedo: 0.75,
-                surface: surface_type::Reflective{reflectivity: 0.3},
+                albedo: 0.85,
+                surface: surface_type::Transparent{index: 1.5, transparency: 1.0},
             }
 
         }), Element::Sphere(Sphere{   //Small amog us ball
@@ -870,7 +915,26 @@ pub extern fn Java_main_javaCall(){
                     blue: 0.2,
     
                 }),
-                albedo: 1.0,
+                albedo: 0.75,
+                surface: surface_type::Reflective{reflectivity: 1.0},
+            }
+
+        }),Element::Sphere(Sphere{  //Red ball
+            center: Point {
+                x: 0.0,
+                y: -2.0,
+                z:-10.0,
+
+            },
+            radius: 0.5,
+            material: Material{
+                color: Texture::color(Color{
+                    red: 0.8,
+                    green: 0.2,
+                    blue: 0.2,
+    
+                }),
+                albedo: 0.28,
                 surface: surface_type::Reflective{reflectivity: 1.0},
             }
 
@@ -893,7 +957,51 @@ pub extern fn Java_main_javaCall(){
                     //blue: 0.8,
                 //}),
                 color: Texture::image(image::open("texture/check.png").unwrap()),
-                albedo: 1.0,
+                albedo: 0.30,
+                surface: surface_type::Reflective{reflectivity: 0.99},
+            }
+
+        }),Element::Plane(Plane{     //Plane
+            center: Point {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+
+            },
+            normal: Vector3{
+                x: 0.0,
+                y: 0.1,
+                z: 1.0,
+            },
+            material: Material{
+                color: Texture::color(Color{
+                    red:0.1,
+                    green:0.4,
+                    blue: 0.8,
+                }),
+                albedo: 0.48,
+                surface: surface_type::Reflective{reflectivity: 0.99},
+            }
+
+        }),Element::Plane(Plane{     //Plane
+            center: Point {
+                x: 0.0,
+                y: 0.0,
+                z: -8.0,
+
+            },
+            normal: Vector3{
+                x: 0.0,
+                y: 0.0 ,
+                z: -1.0,
+            },
+            material: Material{
+                color: Texture::color(Color{
+                    red:0.9,
+                    green:0.4,
+                    blue: 0.1,
+                }),
+                albedo: 0.70,
                 surface: surface_type::Reflective{reflectivity: 0.99},
             }
 
@@ -913,27 +1021,27 @@ pub extern fn Java_main_javaCall(){
         }),Light::Directional(DirectionalLight{
             direction: Vector3{
                 x: 0.0,
-                y: 1.0,
-                z: 0.1,
+                y: 0.0,
+                z: -1.0,
             },
             color: Color{
                 red: 0.1,
                 green: 0.8,
                 blue: 0.1,
             },
-            intensity: 0.1,
+            intensity: 10.0,
         }),Light::Point(PointLight{
             pos: Point{
-                x: 1.0,
-                y: 2.0,
-                z:-5.0,
+                x: -2.0,
+                y: 10.0,
+                z:-3.0,
             },
             color: Color{
                 red: 0.9,
                 green: 0.2,
                 blue: 0.1,
             },
-            intensity: 10.0,
+            intensity: 10000.0,
         }),Light::Point(PointLight{
             pos: Point{
                 x: 0.0,
@@ -945,9 +1053,9 @@ pub extern fn Java_main_javaCall(){
                 green: 0.8,
                 blue: 0.1,
             },
-            intensity: 5.0,
+            intensity: 250.0,
         })],
-        bias:0.1,
+        bias: 1e-13,
         max_rec: 10, 
     };
 
@@ -1005,7 +1113,7 @@ fn main() {
                     blue: 0.2,
                 }),
                 albedo: 1.0,
-                surface: surface_type::Diffuse,
+                surface: surface_type::Transparent{index: 0.5, transparency: 0.6},
             }
 
         }), Element::Sphere(Sphere{   //Small amog us ball
@@ -1019,7 +1127,7 @@ fn main() {
             material: Material{
                 color: Texture::image(image::open("test.png").unwrap()),
                 albedo: 0.75,
-                surface: surface_type::Reflective{reflectivity: 0.3},
+                surface: surface_type::Transparent{index: 0.5, transparency: 0.6},
             }
 
         }), Element::Sphere(Sphere{   //Small amog us ball

@@ -24,9 +24,9 @@ extern "C" {
 #undef main_RIGHT_ALIGNMENT
 #define main_RIGHT_ALIGNMENT 1.0f
 #undef main_serialVersionUID
-#define main_serialVersionUID -7644114512714619750LL
+#define main_serialVersionUID -7644114512714619750i64
 #undef main_serialVersionUID
-#define main_serialVersionUID 4613797578919906343LL
+#define main_serialVersionUID 4613797578919906343i64
 #undef main_INCLUDE_SELF
 #define main_INCLUDE_SELF 1L
 #undef main_SEARCH_HEAVYWEIGHTS
@@ -34,7 +34,7 @@ extern "C" {
 #undef main_OPENED
 #define main_OPENED 1L
 #undef main_serialVersionUID
-#define main_serialVersionUID 4497834738069338734LL
+#define main_serialVersionUID 4497834738069338734i64
 #undef main_DEFAULT_CURSOR
 #define main_DEFAULT_CURSOR 0L
 #undef main_CROSSHAIR_CURSOR
@@ -74,7 +74,7 @@ extern "C" {
 #undef main_MAXIMIZED_BOTH
 #define main_MAXIMIZED_BOTH 6L
 #undef main_serialVersionUID
-#define main_serialVersionUID 2673458971256075116LL
+#define main_serialVersionUID 2673458971256075116i64
 /*
  * Class:     main
  * Method:    hello

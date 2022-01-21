@@ -1,8 +1,7 @@
 use std::ops::{Add, Sub};
 use crate::vector::Vector3;
-use serde::{Serialize, Deserialize};
 
-#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
+#[derive(Copy, Clone, Debug)]
 pub struct Point {
     pub x: f64,
     pub y: f64,
