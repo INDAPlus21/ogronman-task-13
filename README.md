@@ -3,6 +3,8 @@
 
 ### Build & Run
 
+In the main-directory:
+
 ##### Linux
 
 ```bash
