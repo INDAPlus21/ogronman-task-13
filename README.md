@@ -10,6 +10,11 @@ In the main-directory:
 ```bash
 ./run.sh
 ```
+
+if it does not work just run it again...
+
+should probably work then for some reason
+
 ##### Windows 10
 
 
